@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+bevy_prototype_debug_lines = { version = "0.10.1", optional = true }
 
 [dependencies.bevy]
 version = "0.10.0"
@@ -25,7 +26,8 @@ features = [
 
 [features]
 debug = [
-    "bevy/dynamic_linking",    # Faster recompiles
+    "bevy/dynamic_linking",           # Faster recompiles
+    "dep:bevy_prototype_debug_lines", # Debug outlines
 ]
 debug_watch = [
     "bevy/filesystem_watcher", # Watch files for asset hot-reloading
