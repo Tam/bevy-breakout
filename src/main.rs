@@ -54,7 +54,11 @@ fn main() {
         .add_plugin(AssetsPlugin)
         .add_startup_system(setup)
         .add_startup_system(setup_level)
-        .add_system(move_paddle)
+        .add_systems((
+            move_paddle,
+            apply_velocity.after(move_paddle),
+            resolve_collisions.after(apply_velocity),
+        ))
     ;
     
     #[cfg(feature = "debug")]
@@ -110,7 +114,6 @@ fn setup_level (
         }
     }
     
-    
     // Paddle
     commands.spawn((
         SpriteSheetBundle {
@@ -144,7 +147,7 @@ fn setup_level (
             ..default()
         },
         Collider(Vec2::new(22., 22.)),
-        Velocity(Vec2::ZERO),
+        Velocity(Vec2::new(0., 100.)),
     ));
 }
 
@@ -175,6 +178,50 @@ fn move_paddle (
     );
 }
 
+fn apply_velocity (
+    mut query : Query<(&mut Transform, &Velocity)>,
+    time : Res<Time>,
+) {
+    for (mut t, v) in &mut query {
+        let z = t.translation.z;
+        t.translation += v.0.extend(z) * time.delta_seconds();
+    }
+}
+
+fn resolve_collisions (
+    statics_query : Query<(&GlobalTransform, &Collider), Without<Velocity>>,
+    mut ball_query : Query<(&GlobalTransform, &mut Velocity, &Collider)>,
+    time : Res<Time>,
+) {
+    let (ball_t, mut ball_v, ball_c) = ball_query.get_single_mut().unwrap();
+    let half = ball_c.0 * 0.5;
+    let pos = ball_t.translation().truncate() + ball_v.0 * time.delta_seconds();
+    
+    let ball_min = pos - half;
+    let ball_max = pos + half;
+    
+    for (t, c) in &statics_query {
+        let half = c.0 * 0.5;
+        let pos = t.translation().truncate();
+        
+        let min = pos - half;
+        let max = pos + half;
+        
+        if aabb(ball_min, ball_max, min, max) {
+            // TODO: reflect ball by angle of impact
+            ball_v.0 = ball_v.0 * -1.;
+            break;
+        }
+    }
+}
+
 fn lerp (a : f32, b : f32, t : f32) -> f32 {
     a + (b - a) * t
+}
+
+fn aabb (a_min : Vec2, a_max : Vec2, b_min : Vec2, b_max : Vec2) -> bool {
+       a_min.x < b_max.x
+    && a_max.x > b_min.x
+    && a_min.y < b_max.y
+    && a_max.y > b_min.y
 }
