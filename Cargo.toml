@@ -1,0 +1,58 @@
+[package]
+name = "breakout"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+[dependencies.bevy]
+version = "0.10.0"
+default-features = false
+features = [
+    "bevy_asset", 			# Assets management
+    "bevy_winit", 			# Window management
+
+    "bevy_render", 			# Rendering framework core
+    "bevy_core_pipeline", 	# Common rendering abstractions
+    "bevy_sprite", 			# 2D (sprites) rendering
+
+    "bevy_ui",              # UI framework
+    "bevy_text",            # Provides text functionality
+    "subpixel_glyph_atlas", # Render font glyphs using subpixel accuracy
+
+    "png",                  # PNG Assets
+]
+
+[features]
+debug = [
+    "bevy/dynamic_linking",    # Faster recompiles
+]
+debug_watch = [
+    "bevy/filesystem_watcher", # Watch files for asset hot-reloading
+]
+
+# Enable a small amount of optimization in debug mode
+[profile.dev]
+opt-level = 1
+
+# Enable high optimizations for dependencies (incl. Bevy), but not for our code:
+[profile.dev.package."*"]
+opt-level = 3
+
+### WASM
+
+[profile.wasm-release]
+# Use release profile as default values
+inherits = "release"
+
+# Optimize with size in mind, also try "s", sometimes it is better.
+# This doesn't increase compilation times compared to -O3, great improvements
+opt-level = "z"
+
+# Do a second optimization pass removing duplicate or unused code from dependencies.
+# Slows compile times, marginal improvements
+lto = "fat"
+
+# When building crates, optimize larger chunks at a time
+# Slows compile times, marginal improvements
+codegen-units = 1
