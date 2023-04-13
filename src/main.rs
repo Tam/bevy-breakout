@@ -24,7 +24,14 @@ pub struct Velocity (pub Vec2);
 pub struct Paddle;
 
 #[derive(Component)]
-pub struct Score(pub i32);
+#[cfg_attr(feature = "debug", derive(Reflect, Default))]
+#[cfg_attr(feature = "debug", reflect(Component))]
+pub struct Score (pub usize);
+
+#[derive(Component)]
+#[cfg_attr(feature = "debug", derive(Reflect, Default))]
+#[cfg_attr(feature = "debug", reflect(Component))]
+pub struct Health (pub usize);
 
 fn main() {
     let mut app = App::new();
@@ -95,7 +102,8 @@ fn setup_level (
         ].get(y / 2).unwrap();
         
         for x in 0..8 {
-            commands.spawn((
+            let group = (8 - y) / 2;
+            let mut block = commands.spawn((
                 SpriteSheetBundle {
                     transform: Transform::from_xyz(
                         -HALF_SCREEN_WIDTH + (32. + 6.) + (64. + 2.) * x as f32,
@@ -109,8 +117,12 @@ fn setup_level (
                     ..default()
                 },
                 Collider(Vec2::new(64., 32.)),
-                Score(5 * (y / 2) as i32),
+                Score(5 * group),
+                Health(group),
             ));
+            
+            #[cfg(feature = "debug")]
+            block.insert(Name::new(format!("Block Group {}", group)));
         }
     }
     
@@ -213,6 +225,8 @@ fn resolve_collisions (
             break;
         }
     }
+    
+    // TODO: Bounce off walls
 }
 
 fn lerp (a : f32, b : f32, t : f32) -> f32 {

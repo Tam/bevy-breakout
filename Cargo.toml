@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 bevy_prototype_debug_lines = { version = "0.10.1", optional = true }
+bevy-inspector-egui = { version = "0.18.3", default-features = false, optional = true }
 
 [dependencies.bevy]
 version = "0.10.0"
@@ -28,6 +29,7 @@ features = [
 debug = [
     "bevy/dynamic_linking",           # Faster recompiles
     "dep:bevy_prototype_debug_lines", # Debug outlines
+    "dep:bevy-inspector-egui",        # Inspector
 ]
 debug_watch = [
     "bevy/filesystem_watcher", # Watch files for asset hot-reloading
