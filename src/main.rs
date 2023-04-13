@@ -4,6 +4,7 @@ mod debug;
 
 use bevy::prelude::*;
 use bevy::window::{Cursor, PresentMode};
+use rand::Rng;
 use crate::assets::{AssetsPlugin, Spritesheet};
 #[cfg(feature = "debug")]
 use crate::debug::DebugPlugin;
@@ -18,7 +19,14 @@ const HALF_SCREEN_HEIGHT: f32 = SCREEN_HEIGHT / 2.;
 pub struct Collider (pub Vec2);
 
 #[derive(Component)]
+#[cfg_attr(feature = "debug", derive(Reflect, Default))]
+#[cfg_attr(feature = "debug", reflect(Component))]
 pub struct Velocity (pub Vec2);
+
+#[derive(Component)]
+#[cfg_attr(feature = "debug", derive(Reflect, Default))]
+#[cfg_attr(feature = "debug", reflect(Component))]
+pub struct Speed (pub f32);
 
 #[derive(Component)]
 pub struct Paddle;
@@ -32,6 +40,11 @@ pub struct Score (pub usize);
 #[cfg_attr(feature = "debug", derive(Reflect, Default))]
 #[cfg_attr(feature = "debug", reflect(Component))]
 pub struct Health (pub usize);
+
+#[derive(Component)]
+#[cfg_attr(feature = "debug", derive(Reflect, Default))]
+#[cfg_attr(feature = "debug", reflect(Component))]
+pub struct Damage (pub usize);
 
 fn main() {
     let mut app = App::new();
@@ -65,6 +78,7 @@ fn main() {
             move_paddle,
             apply_velocity.after(move_paddle),
             resolve_collisions.after(apply_velocity),
+            handle_damage.after(resolve_collisions),
         ))
     ;
     
@@ -102,7 +116,8 @@ fn setup_level (
         ].get(y / 2).unwrap();
         
         for x in 0..8 {
-            let group = (8 - y) / 2;
+            let group = 4 - (y / 2);
+            #[cfg_attr(not(feature = "debug"), allow(unused_mut,unused_variables))]
             let mut block = commands.spawn((
                 SpriteSheetBundle {
                     transform: Transform::from_xyz(
@@ -119,6 +134,7 @@ fn setup_level (
                 Collider(Vec2::new(64., 32.)),
                 Score(5 * group),
                 Health(group),
+                Damage(0),
             ));
             
             #[cfg(feature = "debug")]
@@ -145,7 +161,8 @@ fn setup_level (
     ));
     
     // Ball
-    commands.spawn((
+    #[cfg_attr(not(feature = "debug"), allow(unused_mut,unused_variables))]
+    let mut ball = commands.spawn((
         SpriteSheetBundle {
             transform: Transform::from_xyz(
                 0.,
@@ -159,8 +176,12 @@ fn setup_level (
             ..default()
         },
         Collider(Vec2::new(22., 22.)),
-        Velocity(Vec2::new(0., 100.)),
+        Velocity(Vec2::new(0., 1.)),
+        Speed(200.),
     ));
+    
+    #[cfg(feature = "debug")]
+    ball.insert(Name::new("Ball"));
 }
 
 fn move_paddle (
@@ -191,28 +212,27 @@ fn move_paddle (
 }
 
 fn apply_velocity (
-    mut query : Query<(&mut Transform, &Velocity)>,
+    mut query : Query<(&mut Transform, &Velocity, &Speed)>,
     time : Res<Time>,
 ) {
-    for (mut t, v) in &mut query {
-        let z = t.translation.z;
-        t.translation += v.0.extend(z) * time.delta_seconds();
+    for (mut t, v, s) in &mut query {
+        t.translation += ((v.0.normalize() * s.0) * time.delta_seconds()).extend(0.);
     }
 }
 
 fn resolve_collisions (
-    statics_query : Query<(&GlobalTransform, &Collider), Without<Velocity>>,
-    mut ball_query : Query<(&GlobalTransform, &mut Velocity, &Collider)>,
+    mut statics_query : Query<(&GlobalTransform, &Collider, Option<&mut Damage>, Option<&Paddle>), Without<Velocity>>,
+    mut ball_query : Query<(&GlobalTransform, &mut Velocity, &Collider, &Speed)>,
     time : Res<Time>,
 ) {
-    let (ball_t, mut ball_v, ball_c) = ball_query.get_single_mut().unwrap();
+    let (ball_t, mut ball_v, ball_c, ball_s) = ball_query.get_single_mut().unwrap();
     let half = ball_c.0 * 0.5;
-    let pos = ball_t.translation().truncate() + ball_v.0 * time.delta_seconds();
+    let pos = ball_t.translation().truncate() + (ball_v.0 * ball_s.0) * time.delta_seconds();
     
     let ball_min = pos - half;
     let ball_max = pos + half;
     
-    for (t, c) in &statics_query {
+    for (t, c, d, p) in &mut statics_query {
         let half = c.0 * 0.5;
         let pos = t.translation().truncate();
         
@@ -220,13 +240,57 @@ fn resolve_collisions (
         let max = pos + half;
         
         if aabb(ball_min, ball_max, min, max) {
-            // TODO: reflect ball by angle of impact
-            ball_v.0 = ball_v.0 * -1.;
+            // TODO: if we collided with the side of a static, do a simple v_x flip instead
+            
+            if p.is_some() {
+                let ball_centre = ball_min.x + 11. - min.x;
+                let impact = ball_centre / (max.x - min.x);
+                ball_v.0.x = lerp(-0.75, 0.75, impact);
+            }
+            
+            if let Some(mut damage) = d {
+                damage.0 += 1;
+            }
+            
+            ball_v.0.y *= -1.;
             break;
         }
     }
     
-    // TODO: Bounce off walls
+    // Walls
+    if ball_min.x <= -HALF_SCREEN_WIDTH || ball_max.x >= HALF_SCREEN_WIDTH {
+        ball_v.0.x *= -1.;
+    }
+    
+    // Top
+    if ball_max.y >= HALF_SCREEN_HEIGHT {
+        ball_v.0.y *= -1.;
+    }
+    
+    // Bottom
+    if ball_min.y <= -HALF_SCREEN_HEIGHT {
+        ball_v.0.y *= -1.;
+        println!("DED");
+    }
+}
+
+fn handle_damage (
+    mut commands : Commands,
+    mut query : Query<(Entity, &Health, &Damage, &Score, &mut Transform), Changed<Damage>>,
+) {
+    let mut rng = rand::thread_rng();
+    
+    for (e, h, d, s, mut t) in &mut query {
+        if d.0 == 0 { continue }
+        if h.0 > d.0 {
+            let flip = if rng.gen_bool(0.5) { -1. } else { 1. };
+            t.rotate_z((rng.gen_range(2.0..=5.0) * flip as f32).to_radians());
+            continue;
+        }
+        
+        println!("Gain {} points!", s.0);
+        commands.entity(e).despawn();
+    }
 }
 
 fn lerp (a : f32, b : f32, t : f32) -> f32 {
