@@ -114,9 +114,9 @@ fn setup_level (
             "block_green",
             "block_grey",
         ].get(y / 2).unwrap();
+        let group = 4 - (y / 2);
         
         for x in 0..8 {
-            let group = 4 - (y / 2);
             #[cfg_attr(not(feature = "debug"), allow(unused_mut,unused_variables))]
             let mut block = commands.spawn((
                 SpriteSheetBundle {
@@ -227,7 +227,11 @@ fn resolve_collisions (
 ) {
     let (ball_t, mut ball_v, ball_c, ball_s) = ball_query.get_single_mut().unwrap();
     let half = ball_c.0 * 0.5;
-    let pos = ball_t.translation().truncate() + (ball_v.0 * ball_s.0) * time.delta_seconds();
+    let pos_start = ball_t.translation().truncate();
+    let pos = pos_start + (ball_v.0 * ball_s.0) * time.delta_seconds();
+    
+    let ball_start_min = pos_start - half;
+    let ball_start_max = pos_start + half;
     
     let ball_min = pos - half;
     let ball_max = pos + half;
@@ -240,7 +244,16 @@ fn resolve_collisions (
         let max = pos + half;
         
         if aabb(ball_min, ball_max, min, max) {
+            if let Some(mut damage) = d {
+                damage.0 += 1;
+            }
+            
             // TODO: if we collided with the side of a static, do a simple v_x flip instead
+            // if start min x > max_x || start max y < min_x
+            if ball_start_min.x > max.x || ball_start_max.x < min.x {
+                ball_v.0.x *= -1.;
+                return;
+            }
             
             if p.is_some() {
                 let ball_centre = ball_min.x + 11. - min.x;
@@ -248,12 +261,8 @@ fn resolve_collisions (
                 ball_v.0.x = lerp(-0.75, 0.75, impact);
             }
             
-            if let Some(mut damage) = d {
-                damage.0 += 1;
-            }
-            
             ball_v.0.y *= -1.;
-            break;
+            return;
         }
     }
     
