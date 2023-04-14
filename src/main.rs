@@ -2,13 +2,16 @@ mod assets;
 #[cfg(feature = "debug")]
 mod debug;
 mod util;
+mod gradient_material;
 
 use bevy::prelude::*;
+use bevy::sprite::MaterialMesh2dBundle;
 use bevy::window::{Cursor, PresentMode};
 use rand::Rng;
-use crate::assets::{AssetsPlugin, Spritesheet};
+use crate::assets::{AssetsPlugin, FontFamily, Spritesheet};
 #[cfg(feature = "debug")]
 use crate::debug::DebugPlugin;
+use crate::gradient_material::GradientMaterial;
 use crate::util::*;
 
 const SCREEN_WIDTH : f32 = 538.;
@@ -48,6 +51,9 @@ pub struct Health (pub usize);
 #[cfg_attr(feature = "debug", reflect(Component))]
 pub struct Damage (pub usize);
 
+#[derive(Component)]
+pub struct ScoreCounter;
+
 fn main() {
     let mut app = App::new();
     
@@ -76,6 +82,7 @@ fn main() {
         }))
         .add_plugin(AssetsPlugin)
         .add_startup_system(setup)
+        .add_startup_system(setup_hud)
         .add_startup_system(setup_level)
         .add_systems((
             move_paddle,
@@ -83,6 +90,7 @@ fn main() {
             apply_velocity.after(resolve_collisions),
             handle_damage.after(apply_velocity),
         ))
+        .add_system(update_ui)
     ;
     
     #[cfg(feature = "debug")]
@@ -102,6 +110,56 @@ fn setup (
     commands.spawn(SpriteBundle {
         texture: asset_server.load("background.png"),
         ..default()
+    });
+}
+
+fn setup_hud (
+    mut commands : Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<GradientMaterial>>,
+    font_family : Res<FontFamily>,
+) {
+    // Line
+    commands.spawn(MaterialMesh2dBundle {
+        mesh: meshes
+            .add(shape::Quad::new(Vec2::new(SCREEN_WIDTH, 50.)).into())
+            .into(),
+        material: materials.add(GradientMaterial {
+            start: Color::hex("#CFEFFC").unwrap(),
+            stop: Color::WHITE,
+        }),
+        transform: Transform::from_translation(Vec3::new(0., HALF_SCREEN_HEIGHT - 25., 1.)),
+        ..default()
+    });
+    
+    commands.spawn(NodeBundle {
+        style: Style {
+            position_type: PositionType::Absolute,
+            position: UiRect::new(
+                Val::Px(0.), Val::Px(0.),
+                Val::Px(15.), Val::Px(SCREEN_HEIGHT - 50.),
+            ),
+            padding: UiRect::all(Val::Px(10.)),
+            justify_content: JustifyContent::SpaceBetween,
+            align_items: AlignItems::Center,
+            ..default()
+        },
+        ..default()
+    }).with_children(|commands| {
+        // Score
+        commands.spawn((
+            TextBundle::from_sections([
+                TextSection::new(
+                    "0",
+                    TextStyle {
+                        font: font_family.0.clone(),
+                        font_size: 28.0,
+                        color: Color::hex("#9FCE30").unwrap(),
+                    },
+                ),
+            ]),
+            ScoreCounter,
+        ));
     });
 }
 
@@ -125,7 +183,7 @@ fn setup_level (
                 SpriteSheetBundle {
                     transform: Transform::from_xyz(
                         -HALF_SCREEN_WIDTH + (32. + 6.) + (64. + 2.) * x as f32,
-                        HALF_SCREEN_HEIGHT - (16. + 6.) + -(32. + 2.) * y as f32,
+                        HALF_SCREEN_HEIGHT - 50. - (16. + 6.) + -(32. + 2.) * y as f32,
                         1.,
                     ),
                     texture_atlas: spritesheet.handle.clone(),
@@ -225,10 +283,10 @@ fn apply_velocity (
 
 fn resolve_collisions (
     mut statics_query : Query<(&GlobalTransform, &Collider, Option<&mut Damage>, Option<&Paddle>), Without<Velocity>>,
-    mut ball_query : Query<(&GlobalTransform, &mut Transform, &mut Velocity, &Collider, &Speed)>,
+    mut ball_query : Query<(&GlobalTransform, &mut Transform, &mut Velocity, &Collider, &mut Speed)>,
     time : Res<Time>,
 ) {
-    let (ball_t, mut ball_local_t, mut ball_v, ball_c, ball_s) = ball_query.get_single_mut().unwrap();
+    let (ball_t, mut ball_local_t, mut ball_v, ball_c, mut ball_s) = ball_query.get_single_mut().unwrap();
     let half = ball_c.0 * 0.5;
     let pos_start = ball_t.translation().truncate();
     let vel = (ball_v.0 * ball_s.0) * time.delta_seconds();
@@ -265,6 +323,7 @@ fn resolve_collisions (
                 let ball_centre = ball_min.x + 11. - min.x;
                 let impact = ball_centre / (max.x - min.x);
                 ball_v.0.x = lerp(-0.75, 0.75, impact);
+                ball_s.0 += 10.;
             }
             
             ball_local_t.translation.y -= pullback;
@@ -284,9 +343,9 @@ fn resolve_collisions (
     }
     
     // Top
-    if ball_max.y >= HALF_SCREEN_HEIGHT {
+    if ball_max.y >= HALF_SCREEN_HEIGHT - 50. {
         ball_v.0.y *= -1.;
-        ball_local_t.translation.y = HALF_SCREEN_HEIGHT - ball_c.0.y * 0.5;
+        ball_local_t.translation.y = HALF_SCREEN_HEIGHT - 50. - ball_c.0.y * 0.5;
     }
     
     // Bottom
@@ -294,6 +353,7 @@ fn resolve_collisions (
         ball_v.0.y *= -1.;
         ball_local_t.translation.y = -HALF_SCREEN_HEIGHT + ball_c.0.y * 0.5;
         println!("DED");
+        ball_s.0 = 200.;
     }
 }
 
@@ -313,7 +373,14 @@ fn handle_damage (
         }
         
         score.0 += s.0;
-        println!("Gain {} points, for a total of {} points!", s.0, score.0);
         commands.entity(e).despawn();
     }
+}
+
+fn update_ui (
+    score : Res<Score>,
+    mut score_ui : Query<&mut Text, With<ScoreCounter>>,
+) {
+    let mut score_text = score_ui.single_mut();
+    score_text.sections[0].value = score.0.to_string();
 }

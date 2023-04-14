@@ -1,15 +1,22 @@
 use bevy::prelude::*;
+use bevy::sprite::Material2dPlugin;
 use bevy::utils::hashbrown::HashMap;
+use crate::gradient_material::GradientMaterial;
 
 pub struct AssetsPlugin;
 impl Plugin for AssetsPlugin {
 	fn build(&self, app: &mut App) {
 		app
 			.init_resource::<Spritesheet>()
+			.init_resource::<FontFamily>()
 			.add_startup_system(load_assets)
+			.add_plugin(Material2dPlugin::<GradientMaterial>::default())
 		;
 	}
 }
+
+#[derive(Resource, Default)]
+pub struct FontFamily (pub Handle<Font>);
 
 #[derive(Resource, Default)]
 pub struct Spritesheet {
@@ -21,7 +28,10 @@ fn load_assets (
 	asset_server : Res<AssetServer>,
 	mut texture_atlases : ResMut<Assets<TextureAtlas>>,
 	mut spritesheet : ResMut<Spritesheet>,
+	mut font_family : ResMut<FontFamily>,
 ) {
+	font_family.0 = asset_server.load("Hogfish.ttf");
+	
 	let texture_handle = asset_server.load("spritesheet.png");
 	let mut texture_atlas = TextureAtlas::new_empty(
 		texture_handle,
