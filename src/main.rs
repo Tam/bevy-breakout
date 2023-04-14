@@ -1,6 +1,7 @@
 mod assets;
 #[cfg(feature = "debug")]
 mod debug;
+mod util;
 
 use bevy::prelude::*;
 use bevy::window::{Cursor, PresentMode};
@@ -8,8 +9,9 @@ use rand::Rng;
 use crate::assets::{AssetsPlugin, Spritesheet};
 #[cfg(feature = "debug")]
 use crate::debug::DebugPlugin;
+use crate::util::*;
 
-const SCREEN_WIDTH : f32 = 540.;
+const SCREEN_WIDTH : f32 = 538.;
 const SCREEN_HEIGHT: f32 = 720.;
 
 const HALF_SCREEN_WIDTH : f32 = SCREEN_WIDTH / 2.;
@@ -31,8 +33,8 @@ pub struct Speed (pub f32);
 #[derive(Component)]
 pub struct Paddle;
 
-#[derive(Component)]
-#[cfg_attr(feature = "debug", derive(Reflect, Default))]
+#[derive(Component,Resource,Default)]
+#[cfg_attr(feature = "debug", derive(Reflect))]
 #[cfg_attr(feature = "debug", reflect(Component))]
 pub struct Score (pub usize);
 
@@ -53,6 +55,7 @@ fn main() {
     cursor.visible = false;
     
     app
+        .init_resource::<Score>()
         .insert_resource(Msaa::default())
         .insert_resource(ClearColor(Color::hex("#CFEFFC").unwrap()))
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -76,9 +79,9 @@ fn main() {
         .add_startup_system(setup_level)
         .add_systems((
             move_paddle,
-            apply_velocity.after(move_paddle),
-            resolve_collisions.after(apply_velocity),
-            handle_damage.after(resolve_collisions),
+            resolve_collisions.after(move_paddle),
+            apply_velocity.after(resolve_collisions),
+            handle_damage.after(apply_velocity),
         ))
     ;
     
@@ -222,13 +225,14 @@ fn apply_velocity (
 
 fn resolve_collisions (
     mut statics_query : Query<(&GlobalTransform, &Collider, Option<&mut Damage>, Option<&Paddle>), Without<Velocity>>,
-    mut ball_query : Query<(&GlobalTransform, &mut Velocity, &Collider, &Speed)>,
+    mut ball_query : Query<(&GlobalTransform, &mut Transform, &mut Velocity, &Collider, &Speed)>,
     time : Res<Time>,
 ) {
-    let (ball_t, mut ball_v, ball_c, ball_s) = ball_query.get_single_mut().unwrap();
+    let (ball_t, mut ball_local_t, mut ball_v, ball_c, ball_s) = ball_query.get_single_mut().unwrap();
     let half = ball_c.0 * 0.5;
     let pos_start = ball_t.translation().truncate();
-    let pos = pos_start + (ball_v.0 * ball_s.0) * time.delta_seconds();
+    let vel = (ball_v.0 * ball_s.0) * time.delta_seconds();
+    let pos = pos_start + vel;
     
     let ball_start_min = pos_start - half;
     let ball_start_max = pos_start + half;
@@ -248,9 +252,11 @@ fn resolve_collisions (
                 damage.0 += 1;
             }
             
-            // TODO: if we collided with the side of a static, do a simple v_x flip instead
-            // if start min x > max_x || start max y < min_x
-            if ball_start_min.x > max.x || ball_start_max.x < min.x {
+            let (hit, mut pullback) = swept_aabb(ball_start_min, ball_start_max, min, max, vel);
+            if pullback.abs() < 1. { pullback = 0. }
+            
+            if hit == 1 {
+                ball_local_t.translation.x -= pullback;
                 ball_v.0.x *= -1.;
                 return;
             }
@@ -261,6 +267,7 @@ fn resolve_collisions (
                 ball_v.0.x = lerp(-0.75, 0.75, impact);
             }
             
+            ball_local_t.translation.y -= pullback;
             ball_v.0.y *= -1.;
             return;
         }
@@ -268,17 +275,24 @@ fn resolve_collisions (
     
     // Walls
     if ball_min.x <= -HALF_SCREEN_WIDTH || ball_max.x >= HALF_SCREEN_WIDTH {
+        let ball_half_w = ball_c.0.x * 0.5;
         ball_v.0.x *= -1.;
+        ball_local_t.translation.x = ball_local_t.translation.x.clamp(
+            -HALF_SCREEN_WIDTH + ball_half_w,
+            HALF_SCREEN_WIDTH - ball_half_w,
+        );
     }
     
     // Top
     if ball_max.y >= HALF_SCREEN_HEIGHT {
         ball_v.0.y *= -1.;
+        ball_local_t.translation.y = HALF_SCREEN_HEIGHT - ball_c.0.y * 0.5;
     }
     
     // Bottom
     if ball_min.y <= -HALF_SCREEN_HEIGHT {
         ball_v.0.y *= -1.;
+        ball_local_t.translation.y = -HALF_SCREEN_HEIGHT + ball_c.0.y * 0.5;
         println!("DED");
     }
 }
@@ -286,6 +300,7 @@ fn resolve_collisions (
 fn handle_damage (
     mut commands : Commands,
     mut query : Query<(Entity, &Health, &Damage, &Score, &mut Transform), Changed<Damage>>,
+    mut score : ResMut<Score>,
 ) {
     let mut rng = rand::thread_rng();
     
@@ -297,18 +312,8 @@ fn handle_damage (
             continue;
         }
         
-        println!("Gain {} points!", s.0);
+        score.0 += s.0;
+        println!("Gain {} points, for a total of {} points!", s.0, score.0);
         commands.entity(e).despawn();
     }
-}
-
-fn lerp (a : f32, b : f32, t : f32) -> f32 {
-    a + (b - a) * t
-}
-
-fn aabb (a_min : Vec2, a_max : Vec2, b_min : Vec2, b_max : Vec2) -> bool {
-       a_min.x < b_max.x
-    && a_max.x > b_min.x
-    && a_min.y < b_max.y
-    && a_max.y > b_min.y
 }
