@@ -41,8 +41,8 @@ pub struct Paddle;
 #[cfg_attr(feature = "debug", reflect(Component))]
 pub struct Score (pub usize);
 
-#[derive(Component)]
-#[cfg_attr(feature = "debug", derive(Reflect, Default))]
+#[derive(Component,Resource,Default)]
+#[cfg_attr(feature = "debug", derive(Reflect))]
 #[cfg_attr(feature = "debug", reflect(Component))]
 pub struct Health (pub usize);
 
@@ -54,6 +54,9 @@ pub struct Damage (pub usize);
 #[derive(Component)]
 pub struct ScoreCounter;
 
+#[derive(Component)]
+pub struct HealthCounter;
+
 fn main() {
     let mut app = App::new();
     
@@ -62,6 +65,7 @@ fn main() {
     
     app
         .init_resource::<Score>()
+        .insert_resource(Health(3))
         .insert_resource(Msaa::default())
         .insert_resource(ClearColor(Color::hex("#CFEFFC").unwrap()))
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -159,6 +163,21 @@ fn setup_hud (
                 ),
             ]),
             ScoreCounter,
+        ));
+        
+        // Health
+        commands.spawn((
+            TextBundle::from_sections([
+                TextSection::new(
+                    "3",
+                    TextStyle {
+                        font: font_family.0.clone(),
+                        font_size: 28.0,
+                        color: Color::hex("#F23837").unwrap(),
+                    },
+                ),
+            ]),
+            HealthCounter,
         ));
     });
 }
@@ -285,6 +304,7 @@ fn resolve_collisions (
     mut statics_query : Query<(&GlobalTransform, &Collider, Option<&mut Damage>, Option<&Paddle>), Without<Velocity>>,
     mut ball_query : Query<(&GlobalTransform, &mut Transform, &mut Velocity, &Collider, &mut Speed)>,
     time : Res<Time>,
+    mut health : ResMut<Health>,
 ) {
     let (ball_t, mut ball_local_t, mut ball_v, ball_c, mut ball_s) = ball_query.get_single_mut().unwrap();
     let half = ball_c.0 * 0.5;
@@ -352,8 +372,9 @@ fn resolve_collisions (
     if ball_min.y <= -HALF_SCREEN_HEIGHT {
         ball_v.0.y *= -1.;
         ball_local_t.translation.y = -HALF_SCREEN_HEIGHT + ball_c.0.y * 0.5;
-        println!("DED");
         ball_s.0 = 200.;
+        // TODO: On 0 reset game
+        health.0 -= 1;
     }
 }
 
@@ -380,7 +401,12 @@ fn handle_damage (
 fn update_ui (
     score : Res<Score>,
     mut score_ui : Query<&mut Text, With<ScoreCounter>>,
+    health : Res<Health>,
+    mut health_ui : Query<&mut Text, (With<HealthCounter>, Without<ScoreCounter>)>,
 ) {
     let mut score_text = score_ui.single_mut();
     score_text.sections[0].value = score.0.to_string();
+    
+    let mut health_text = health_ui.single_mut();
+    health_text.sections[0].value = health.0.to_string();
 }
