@@ -305,6 +305,7 @@ fn resolve_collisions (
     mut ball_query : Query<(&GlobalTransform, &mut Transform, &mut Velocity, &Collider, &mut Speed)>,
     time : Res<Time>,
     mut health : ResMut<Health>,
+    mut score : ResMut<Score>,
 ) {
     let (ball_t, mut ball_local_t, mut ball_v, ball_c, mut ball_s) = ball_query.get_single_mut().unwrap();
     let half = ball_c.0 * 0.5;
@@ -373,8 +374,13 @@ fn resolve_collisions (
         ball_v.0.y *= -1.;
         ball_local_t.translation.y = -HALF_SCREEN_HEIGHT + ball_c.0.y * 0.5;
         ball_s.0 = 200.;
-        // TODO: On 0 reset game
-        health.0 -= 1;
+        if health.0 == 0 {
+            // TODO: On 0 reset game (for now just zeroing score & resetting health)
+            score.0 = 0;
+            health.0 = 3;
+        } else {
+            health.0 -= 1;
+        }
     }
 }
 

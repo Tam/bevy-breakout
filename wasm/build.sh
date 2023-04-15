@@ -22,16 +22,16 @@ cargo build --profile wasm-release --target wasm32-unknown-unknown
 
 echo Bind wasm
 start_spinner
-wasm-bindgen --out-name tappy-plane --out-dir docs/wasm --target web target/wasm32-unknown-unknown/wasm-release/tappy-plane.wasm
+wasm-bindgen --out-name breakout --out-dir docs/wasm --target web target/wasm32-unknown-unknown/wasm-release/breakout.wasm
 stop_spinner
 
 echo Optimise wasm
 start_spinner
-wasm-opt -Oz --output optimized.wasm docs/wasm/tappy-plane_bg.wasm
+wasm-opt -Oz --output optimized.wasm docs/wasm/breakout_bg.wasm
 stop_spinner
 
 echo Store optimised wasm
-mv optimized.wasm docs/wasm/tappy-plane_bg.wasm
+mv optimized.wasm docs/wasm/breakout_bg.wasm
 
 echo Link assets
 cp -R ./assets ./docs/assets
@@ -39,5 +39,5 @@ cp -R ./assets ./docs/assets
 echo Tidy generated files
 start_spinner
 rm docs/wasm/*.ts
-uglifyjs docs/wasm/tappy-plane.js -c -m -o docs/wasm/tappy-plane.js --module
+uglifyjs docs/wasm/breakout.js -c -m -o docs/wasm/breakout.js --module
 stop_spinner
